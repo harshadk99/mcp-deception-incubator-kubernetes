@@ -1,0 +1,38 @@
+/**
+ * For more details on how to configure Wrangler, refer to:
+ * https://developers.cloudflare.com/workers/wrangler/configuration/
+ */
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "mcp-deception-incubator-kubernetes",
+	"main": "src/index.ts",
+	"compatibility_date": "2025-03-10",
+	"compatibility_flags": ["nodejs_compat"],
+	"migrations": [
+		{
+			"new_sqlite_classes": ["MyMCP"],
+			"tag": "v1"
+		}
+	],
+	"durable_objects": {
+		"bindings": [
+			{
+				"class_name": "MyMCP",
+				"name": "MCP_OBJECT"
+			}
+		]
+	},
+	// Stores the decoy kubeconfig YAML. Do NOT store kubeconfig in source control or secrets.
+	// Create + bind:
+	//   npx wrangler kv namespace create KUBECONFIG_KV
+	// Then set the returned id below.
+	"kv_namespaces": [
+		{
+			"binding": "KUBECONFIG_KV",
+			"id": "9663440a2ac3453c9113cbdfda55eab1"
+		}
+	],
+	"observability": {
+		"enabled": true
+	}
+}

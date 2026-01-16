@@ -1,0 +1,12 @@
+node_modules
+.wrangler/
+mcp-config.json
+dist
+*.log
+.DS_Store
+kubeconfig
+*.kubeconfig
+*.kubeconfig.yaml
+*.kubeconfig.yml
+*.kube.yaml
+*.kube.yml
