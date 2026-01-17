@@ -8,23 +8,25 @@ A Kubernetes-specific deception server built on Cloudflare Workers and the Model
 
 ## 🧩 TL;DR
 
-This Worker keeps **full MCP compatibility exactly as the MVP** (same `/sse` SSE endpoint + JSON-RPC tool invocation) but replaces the content with a Kubernetes “Access Portal”.
+This is the **Kubernetes Access Portal** trap in the **MCP Deception Incubator**: a Cloudflare Worker that exposes an MCP server over **`/sse`** (SSE) and **`/mcp`** (Streamable HTTP) with realistic “internal portal” tooling.
+
+- **Safe tools**: `k8s_access_guide`, `cluster_status_public`
+- **Decoy trap**: `kubeconfig_get` returns a Thinkst Canary kubeconfig YAML from Workers KV and emits hashed telemetry (and can optionally trigger a Thinkst web bug via `CANARY_WEB_BUG_URL`)
 
 ## 💡 Why It Matters
 
-- ✅ First-of-its-kind use of MCP as a deception honeypot
-- 🧠 Detects unauthorized AI agent behavior in Zero Trust environments
-- 🌍 Serverless, globally distributed, and stealthy
-- 🎯 Easy to deploy, integrate, and extend
-- 🛡️ Provides valuable threat intelligence about AI agent behaviors
-- 🔍 OWASP AI Security tested against emerging AI-based threats
+- 🎯 **Threat model focus**: catches “helpful agent” misuse where an AI client tries to obtain Kubernetes access (kubeconfig) through MCP tooling.
+- 🧲 **High-signal trap**: `kubeconfig_get` is a credential-shaped action; invoking it is an early indicator of intent to access a cluster.
+- 🪵 **Low-risk telemetry**: emits a structured `trap_triggered` event with salted hashes only (no kubeconfig content, no raw identifiers).
+- 🕸️ **Two-stage detection**: optional Thinkst web bug on invocation (`CANARY_WEB_BUG_URL`), plus a stronger Thinkst alert if the returned kubeconfig is actually used with `kubectl`.
+- 🌍 **Practical deployment**: runs as a Cloudflare Worker (globally reachable) and speaks MCP over `/sse` and `/mcp` for common clients (Playground/Cursor).
 
 ## 🔐 Security posture (what this project actually does)
 
 - **No secrets in code**: the decoy kubeconfig is stored in Workers KV (never committed, never logged, never stored as a Worker secret)
 - **Telemetry is non-sensitive**: emits `trap_triggered` with salted hashes only (no kubeconfig contents)
 - **Two-stage detection**:
-  - Stage 1: invoking `kubeconfig_get` triggers a Thinkst web bug in the background
+  - Stage 1: invoking `kubeconfig_get` triggers a Thinkst web bug in the background (**only if** `CANARY_WEB_BUG_URL` is configured)
   - Stage 2: using the returned kubeconfig with `kubectl` triggers an independent Thinkst alert
 
 ## 🚀 Deploy Your Own
@@ -50,8 +52,11 @@ https://mcp-deception-incubator-kubernetes.<your-account>.workers.dev
 ## 🔧 Tools
 
 - **`k8s_access_guide`** (real / safe): Returns an internal-style guide for requesting, approving, and auditing Kubernetes access, plus a **non-functional** kubeconfig template (`example.invalid`, token `REDACTED`).
-- **`cluster_status_public`** (real / safe): Returns simulated, harmless cluster status for the provided cluster name.
-- **`kubeconfig_get`** (**DECOY**): Returns a **real Thinkst Canary kubeconfig YAML** loaded from KV (not committed), and triggers detection.
+- **`cluster_status_public`** (real / safe): Returns **simulated** (deterministic) cluster status for the provided cluster name.
+- **`kubeconfig_get`** (**DECOY**): Returns a Thinkst Canary kubeconfig YAML loaded from KV (not committed) and triggers detection signals.  
+  Notes:
+  - `namespace` defaults to `default`
+  - `reason` is accepted by the tool interface but is not used or logged by this Worker
 
 ## 📡 Connect via MCP SSE
 
@@ -59,6 +64,12 @@ Use this MCP server URL in Cloudflare AI Playground / Cursor MCP:
 
 ```
 https://mcp-deception-incubator-kubernetes.<your-account>.workers.dev/sse
+```
+
+Under the hood, the Worker also serves the MCP SSE message endpoint at:
+
+```
+https://mcp-deception-incubator-kubernetes.<your-account>.workers.dev/sse/message
 ```
 
 ## 🧪 Compatibility smoke test
@@ -110,10 +121,83 @@ use tool kubeconfig_get with { "cluster": "prod-us-east-1", "namespace": "defaul
 
 - **Stage 1 (curiosity / early signal)**: When `kubeconfig_get` is invoked, the Worker:
   - returns the kubeconfig YAML from KV
-  - triggers the Thinkst web bug in the background via `ctx.waitUntil(fetch(...))`
+  - triggers the Thinkst web bug in the background via `ctx.waitUntil(fetch(...))` **if** `CANARY_WEB_BUG_URL` is configured
   - emits a structured telemetry event `trap_triggered` with **salted hashes** of `cluster` and `namespace`
 
 - **Stage 2 (intent / operational use)**: If an attacker (or AI agent) tries to actually use `kubectl` with the returned kubeconfig, Thinkst Canarytokens will fire a second, independent alert. This is a stronger confirmation of operational intent than simply calling the tool.
+
+## 🧪 Threat model & assumptions (research-oriented)
+
+This trap is designed to study and detect a specific class of behavior:
+
+- **Actor**: an AI agent (or human using an agent) connected to an MCP tool surface.
+- **Goal**: obtain Kubernetes credentials (kubeconfig) and attempt to use them outside the MCP session.
+- **Key assumption**: requesting a kubeconfig via tooling is a high-signal action compared to general “how do I…” questions.
+
+Out of scope for this repo (today):
+
+- preventing access (no access control / allowlisting)
+- rate limiting or abuse throttling
+- persistence of telemetry beyond standard Worker logs
+
+## 📊 Data collection & privacy
+
+What is collected by this Worker:
+
+- a single structured log event on trap activation (`eventType: "trap_triggered"`)
+- **only salted SHA-256 hashes** of `cluster` and `namespace` (never raw values)
+
+What is explicitly not collected by this Worker:
+
+- kubeconfig content (never logged)
+- the `reason` parameter (not used)
+
+To analyze events, use Cloudflare Worker logs/observability for the deployed service and filter for `eventType":"trap_triggered"`.
+
+## 🧫 Suggested research questions & experiments
+
+Because the “safe” tools are non-sensitive and the trap tool is credential-shaped, you can run controlled studies such as:
+
+- **Tool-choice behavior**: do agents attempt `kubeconfig_get` without a formal access workflow?
+- **Escalation patterns**: what prompts lead from `k8s_access_guide` → `kubeconfig_get`?
+- **Operationalization**: how often does Stage 2 (kubeconfig use) occur after Stage 1 (tool invocation)?
+
+Simple metrics you can extract from logs:
+
+- count of `trap_triggered` over time
+- unique hashed clusters/namespaces requested (cardinality on hashes)
+- time-to-trigger from initial connection (requires correlating with request logs)
+
+## ⚠️ Limitations (important for security interpretation)
+
+- **Not access control**: this is a detection/deception surface, not a gate. There is no allowlist/authz layer in this repo.
+- **No built-in persistence**: telemetry is emitted to Worker logs; long-term storage/analysis depends on your logging/observability pipeline.
+- **Optional Stage 1 signal**: the web bug fires only when `CANARY_WEB_BUG_URL` is configured.
+- **Simulated status**: `cluster_status_public` is deterministic simulation derived from the input string (not real Kubernetes telemetry).
+- **Parameters**: `reason` is accepted by `kubeconfig_get` but is not used or logged by this Worker.
+
+## 🛡️ Operational security / safe deployment
+
+This project is intended for controlled security research and deception engineering.
+
+- Deploy in an **isolated Cloudflare account** and/or dedicated subdomain.
+- Only ever store and serve **decoy** kubeconfigs/tokens (never real cluster credentials).
+- Treat the service as **internet-facing**: monitor access and keep the repo/config free of secrets.
+- If your study involves humans, ensure you have appropriate **authorization and disclosure** for your environment.
+
+## ✅ Reproducible evaluation checklist (security-centric)
+
+1) Deploy the Worker (`npm run deploy`).
+2) Configure:
+   - `TELEMETRY_SALT` (required for hashing)
+   - KV binding `KUBECONFIG_KV` + key `kubeconfig_yaml` (required for the decoy artifact)
+   - `CANARY_WEB_BUG_URL` (optional Stage 1 signal)
+3) Verify MCP surface:
+   - run `./scripts/compat-smoke.sh <base-url>`
+4) Trigger detection (Stage 1):
+   - call the MCP tool `kubeconfig_get` and confirm a log event with `eventType":"trap_triggered"`
+5) (Optional) Trigger detection (Stage 2):
+   - use the returned kubeconfig with `kubectl` and confirm your Thinkst token alerting path works end-to-end
 
 ## 🗄️ Kubeconfig storage (KV) — required
 
@@ -133,7 +217,7 @@ kubeconfig_yaml
 npx wrangler kv namespace create KUBECONFIG_KV
 ```
 
-2) Put the returned namespace id into `wrangler.jsonc` under `kv_namespaces[0].id`.
+2) Put the returned namespace id into `wrangler.jsonc` under `kv_namespaces[0].id` (replace the existing value in this repo).
 
 3) Set the telemetry salt (used only to hash identifiers):
 
@@ -191,9 +275,9 @@ Ensure KV binding exists (`KUBECONFIG_KV` in `wrangler.jsonc`) and store:
 
 If you're having trouble connecting to your MCP server from Cloudflare AI Playground or other clients:
 
-1. **Check SDK Versions**: Ensure you're using compatible versions of `@modelcontextprotocol/sdk` (v1.13.1+) and `agents` packages (v0.0.100+)
+1. **Check SDK Versions**: This repo uses `@modelcontextprotocol/sdk` `^1.25.2` and `agents` `0.0.100`.
 2. **Verify Tool Structure**: Make sure your tool definitions follow the standard format: `(name, parameters, handler)`
-3. **Avoid Custom Headers**: Don't add custom security headers to MCP or SSE endpoints
+3. **Avoid proxy/header surprises**: If you’re putting this behind another proxy, avoid overriding response headers in a way that breaks SSE/streaming.
 4. **Test with curl**: Use curl to test your endpoints directly
 5. **Check Browser Console**: Look for CORS errors or other issues in the browser console
 
@@ -209,11 +293,14 @@ If you're having trouble connecting to your MCP server from Cloudflare AI Playgr
 ## 🔍 How It Works
 
 1. **Honeypot Setup**: Deploys as a Cloudflare Worker with MCP and REST endpoints
-2. **Deception Layer**: Presents as legitimate internal tools with realistic behaviors
-3. **Detection Mechanism**: When sensitive tools are accessed, silently triggers alerts via Canarytokens
-4. **Rate Limiting**: Prevents abuse with configurable request limits
-5. **Realistic Responses**: Implements variable delays and context-aware responses
-6. **SSE Communication**: Uses Server-Sent Events for real-time MCP protocol communication
+2. **Deception Layer**: Presents as legitimate internal portal tooling (guide + simulated status)
+3. **Detection Mechanism**: When `kubeconfig_get` is invoked, it emits hashed telemetry and can optionally trigger a Thinkst web bug
+4. **SSE Communication**: Uses Server-Sent Events for real-time MCP protocol communication
+
+## 🧱 Worker runtime notes
+
+- This Worker uses a **Durable Object binding** (`MCP_OBJECT`) as configured in `wrangler.jsonc`.
+- It also enables `nodejs_compat` (see `wrangler.jsonc`).
 
 ## 🧠 Try These MCP Tool Prompts
 
@@ -226,24 +313,9 @@ use tool cluster_status_public with { "cluster": "dev-us-east-1" }
 use tool kubeconfig_get with { "cluster": "prod-us-east-1", "namespace": "default", "reason": "read-only debugging" }
 ```
 
-## 📊 Recent Updates
+## 📊 Notes
 
-### Version 1.4.0
-- **MCP Compatibility Improvements**: Fixed issues with Cloudflare AI Playground connectivity
-- **Updated Dependencies**: Upgraded to latest MCP SDK (v1.13.1) and Agents package (v0.0.100)
-- **Optimized Tool Structure**: Improved tool definitions for better compatibility
-- **Streamlined Response Handling**: Enhanced SSE and MCP endpoint handling
-
-#### Key Changes
-- Tool definitions now follow standard format: `(name, parameters, handler)`
-- Simplified response handling for MCP and SSE endpoints
-- Removed custom header manipulation that was interfering with MCP protocol
-- Let the MCP SDK handle headers directly for better compatibility
-
-### Version 1.3.0
-- Added enhanced resume data with 13+ question categories
-- Implemented sensitive username detection
-- Added OWASP AI Security test scripts
+- This README intentionally documents current behavior. A detailed changelog is not maintained here.
 
 ## 🛡️ Future Security Enhancements
 
