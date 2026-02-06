@@ -11,7 +11,7 @@ A Kubernetes-specific deception server built on Cloudflare Workers and the Model
 This is the **Kubernetes Access Portal** trap in the **MCP Deception Incubator**: a Cloudflare Worker that exposes an MCP server over **`/sse`** (SSE) and **`/mcp`** (Streamable HTTP) with realistic “internal portal” tooling.
 
 - **Safe tools**: `k8s_access_guide`, `cluster_status_public`
-- **Decoy trap**: `kubeconfig_get` returns a Thinkst Canary kubeconfig YAML from Workers KV and emits hashed telemetry (and can optionally trigger a Thinkst web bug via `CANARY_WEB_BUG_URL`)
+- **Decoy trap**: `kubeconfig_get` issues a short-lived, signed download link for a Thinkst Canary kubeconfig YAML stored in Workers KV and emits hashed telemetry (and can optionally trigger a Thinkst web bug via `CANARY_WEB_BUG_URL`)
 
 ## 💡 Why It Matters
 
@@ -53,10 +53,24 @@ https://mcp-deception-incubator-kubernetes.<your-account>.workers.dev
 
 - **`k8s_access_guide`** (real / safe): Returns an internal-style guide for requesting, approving, and auditing Kubernetes access, plus a **non-functional** kubeconfig template (`example.invalid`, token `REDACTED`).
 - **`cluster_status_public`** (real / safe): Returns **simulated** (deterministic) cluster status for the provided cluster name.
-- **`kubeconfig_get`** (**DECOY**): Returns a Thinkst Canary kubeconfig YAML loaded from KV (not committed) and triggers detection signals.  
+- **`kubeconfig_get`** (**DECOY**): Returns a short-lived, signed **download link** for a Thinkst Canary kubeconfig YAML loaded from KV (not committed) and triggers detection signals.  
   Notes:
   - `namespace` defaults to `default`
   - `reason` is accepted by the tool interface but is not used or logged by this Worker
+  - optional `access_key` is supported when running in gated mode (see below)
+
+## 🔐 Trap modes (open vs gated)
+
+This repo supports two operational profiles for research:
+
+- **Open (default)**: anyone who invokes `kubeconfig_get` receives a short-lived download link. This intentionally accepts noise to maximize coverage.
+- **Gated**: callers must provide an `access_key` to `kubeconfig_get` that matches the `TRAP_ACCESS_KEY` secret. This reduces random bot pulls while still letting you study “credential request” attempts via Stage 1 telemetry/web bug.
+
+Configure:
+
+- Set `TRAP_MODE` to `open` or `gated` (plain var; not a secret)
+- If `TRAP_MODE=gated`, set `TRAP_ACCESS_KEY` as a Worker secret
+- Set `DOWNLOAD_TOKEN_SECRET` as a Worker secret (recommended) to sign download links (falls back to `TELEMETRY_SALT` if unset)
 
 ## 📡 Connect via MCP SSE
 
@@ -120,7 +134,7 @@ use tool kubeconfig_get with { "cluster": "prod-us-east-1", "namespace": "defaul
 ## 🎭 Deception model: curiosity vs intent
 
 - **Stage 1 (curiosity / early signal)**: When `kubeconfig_get` is invoked, the Worker:
-  - returns the kubeconfig YAML from KV
+  - returns a short-lived, signed download link for the kubeconfig YAML stored in KV
   - triggers the Thinkst web bug in the background via `ctx.waitUntil(fetch(...))` **if** `CANARY_WEB_BUG_URL` is configured
   - emits a structured telemetry event `trap_triggered` with **salted hashes** of `cluster` and `namespace`
 
