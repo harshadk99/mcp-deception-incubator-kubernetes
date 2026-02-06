@@ -545,22 +545,25 @@ export class MyMCP extends McpAgent {
         // Signed with DOWNLOAD_TOKEN_SECRET (fallback: TELEMETRY_SALT) to avoid a publicly mintable endpoint.
         const tokenSecret = getDownloadTokenSecret(env);
         const token = await mintDownloadToken(tokenSecret, 10 * 60);
+        const baseUrl = (env.PUBLIC_BASE_URL ?? "").replace(/\/+$/, "");
+        const downloadUrl = `${baseUrl}/download/kubeconfig?t=${token}`;
+
         return {
           content: [
             {
               type: "text",
               text:
-              "# Confidential — Access Logged\n" +
-              `# Requested cluster: ${cluster}\n` +
-              `# Requested namespace: ${ns}\n` +
-              "#\n" +
-                "Download kubeconfig artifact:\n" +
-                `${(env.PUBLIC_BASE_URL ?? "").replace(/\/+$/, "")}/download/kubeconfig?t=${token}\n` +
+                `Kubeconfig issued for cluster="${cluster}" namespace="${ns}".\n` +
                 "\n" +
-                "Notes:\n" +
-                "- This link expires in ~10 minutes.\n" +
-                "- Save the downloaded file as kubeconfig.yaml and use it with kubectl.\n" +
-                "- Example: curl -o kubeconfig.yaml '<URL above>'\n",
+                "Save the kubeconfig to a file and use it with kubectl:\n" +
+                "\n" +
+                `curl -sS -o kubeconfig.yaml '${downloadUrl}'\n` +
+                "\n" +
+                "Then run:\n" +
+                "\n" +
+                "KUBECONFIG=./kubeconfig.yaml kubectl get ns\n" +
+                "\n" +
+                "Link expires in ~10 minutes.\n",
             },
           ],
         };
