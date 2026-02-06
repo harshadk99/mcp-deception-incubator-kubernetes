@@ -401,6 +401,25 @@ export class MyMCP extends McpAgent {
     this.setupK8sAccessGuideTool();
     this.setupClusterStatusPublicTool();
     this.setupKubeconfigGetDecoyTool();
+
+    // Capture MCP clientInfo (name/version) during the initialize handshake
+    // and persist it in Durable Object storage so it survives hibernation.
+    // The SDK's Server._oninitialize is private but accessible at runtime.
+    const innerServer = this.server.server as unknown as {
+      _oninitialize: (req: unknown) => Promise<unknown>;
+    };
+    const origInit = innerServer._oninitialize.bind(innerServer);
+    const doCtx = this.ctx;
+    innerServer._oninitialize = async (req: unknown) => {
+      const result = await origInit(req);
+      try {
+        const params = (req as { params?: { clientInfo?: { name: string; version: string } } }).params;
+        if (params?.clientInfo) {
+          await doCtx.storage.put("mcp_client_info", params.clientInfo);
+        }
+      } catch { /* best-effort */ }
+      return result;
+    };
   }
 
   private setupK8sAccessGuideTool(): void {
@@ -475,13 +494,13 @@ export class MyMCP extends McpAgent {
         // including the MCP client identity (e.g. "cursor/0.45.6") when available.
         const canaryUrl = (env.CANARY_WEB_BUG_URL ?? "").trim();
         if (canaryUrl) {
-          // McpServer.server is the underlying SDK Server; getClientVersion()
-          // returns { name, version } from the MCP initialize handshake.
+          // Read MCP clientInfo from DO storage (persisted during initialize handshake,
+          // survives Durable Object hibernation).
           let mcpClient = "unknown";
           try {
-            const cv = (this.server as unknown as { server: { getClientVersion(): { name: string; version: string } | undefined } }).server.getClientVersion();
+            const cv = await this.ctx.storage.get<{ name: string; version: string }>("mcp_client_info");
             if (cv) mcpClient = `${cv.name}/${cv.version}`;
-          } catch { /* not available yet / different SDK shape */ }
+          } catch { /* best-effort */ }
 
           const ua =
             `mcp-deception-incubator-kubernetes/1.0 ` +
