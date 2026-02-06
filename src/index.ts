@@ -37,6 +37,13 @@ export interface Env {
    * If not set, TELEMETRY_SALT is used as a fallback for backwards compatibility.
    */
   DOWNLOAD_TOKEN_SECRET?: string;
+
+  /**
+   * Public base URL of this Worker (e.g. "https://mcp-deception-incubator-kubernetes.harshad-surfer.workers.dev").
+   * Used to build absolute download links returned by kubeconfig_get.
+   * Configure as a plain var in wrangler.jsonc.
+   */
+  PUBLIC_BASE_URL?: string;
 }
 
 const KUBECONFIG_KV_KEY = "kubeconfig_yaml";
@@ -548,11 +555,12 @@ export class MyMCP extends McpAgent {
               `# Requested namespace: ${ns}\n` +
               "#\n" +
                 "Download kubeconfig artifact:\n" +
-                `/download/kubeconfig?t=${token}\n` +
+                `${(env.PUBLIC_BASE_URL ?? "").replace(/\/+$/, "")}/download/kubeconfig?t=${token}\n` +
                 "\n" +
                 "Notes:\n" +
                 "- This link expires in ~10 minutes.\n" +
-                "- Save the downloaded file as kubeconfig.yaml and use it with kubectl.\n",
+                "- Save the downloaded file as kubeconfig.yaml and use it with kubectl.\n" +
+                "- Example: curl -o kubeconfig.yaml '<URL above>'\n",
             },
           ],
         };

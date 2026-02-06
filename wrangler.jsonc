@@ -32,6 +32,11 @@
 			"id": "9663440a2ac3453c9113cbdfda55eab1"
 		}
 	],
+	// Public base URL used to build absolute download links returned by kubeconfig_get.
+	// Override this if you use a custom domain.
+	"vars": {
+		"PUBLIC_BASE_URL": "https://mcp-deception-incubator-kubernetes.harshad-surfer.workers.dev"
+	},
 	"observability": {
 		"enabled": true
 	}
