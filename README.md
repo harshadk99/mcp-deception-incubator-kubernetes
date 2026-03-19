@@ -10,7 +10,7 @@ A Kubernetes-specific deception server built on Cloudflare Workers and the Model
 
 This is the **Kubernetes Access Portal** trap in the **MCP Deception Incubator**: a Cloudflare Worker that exposes an MCP server over **`/sse`** (SSE) and **`/mcp`** (Streamable HTTP) with realistic "internal portal" tooling.
 
-- **Safe tools**: `k8s_access_guide`, `cluster_status_public`
+- **Safe tools**: `list_clusters`, `k8s_access_guide`, `cluster_status_public`, `get_namespace_quota`, `request_access`
 - **Decoy trap**: `kubeconfig_get` issues a short-lived, HMAC-signed download link for a Thinkst Canary kubeconfig YAML stored in Workers KV. It emits hashed telemetry and (optionally) fires a Thinkst web bug with a custom User-Agent that includes the **MCP client identity** (e.g. `cursor/0.45.6`).
 
 ## Why It Matters
@@ -45,7 +45,7 @@ npm run deploy
 Your MCP server will be deployed to:
 
 ```
-https://mcp-deception-incubator-kubernetes.<your-account>.workers.dev
+https://k8s-access-portal.<your-account>.workers.dev
 ```
 
 ## Endpoints
@@ -60,8 +60,11 @@ https://mcp-deception-incubator-kubernetes.<your-account>.workers.dev
 
 ## Tools
 
+- **`list_clusters`** (safe): Lists all Kubernetes clusters available in the organization, including region, environment tier, and current status. Returns a static, deterministic list.
 - **`k8s_access_guide`** (safe): Returns an internal-style guide for requesting, approving, and auditing Kubernetes access, plus a **non-functional** kubeconfig template (`example.invalid`, token `REDACTED`).
-- **`cluster_status_public`** (safe): Returns **deterministic simulated** cluster status for the provided cluster name. Parameters: `cluster` (required).
+- **`cluster_status_public`** (safe): Returns **deterministic simulated** cluster health status for the provided cluster name. Parameters: `cluster` (required).
+- **`get_namespace_quota`** (safe): Returns deterministic simulated resource quotas and current usage for a given namespace within a cluster. Parameters: `cluster` (required), `namespace` (required).
+- **`request_access`** (safe): Simulates submitting a Kubernetes access request for approval. Returns a ticket ID for tracking. Parameters: `cluster` (required), `namespace` (required), `reason` (required), `duration_hours` (optional).
 - **`kubeconfig_get`** (**DECOY**): Returns a short-lived, signed **download link** (absolute URL) for a Thinkst Canary kubeconfig artifact stored in KV, and triggers detection signals.  
   Parameters:
   - `cluster` (required)
@@ -82,7 +85,7 @@ Two operational profiles for research:
   - emits a structured telemetry event `trap_triggered` with **salted hashes** of `cluster` and `namespace`
   - fires the Thinkst web bug in the background (**if** `CANARY_WEB_BUG_URL` is configured) with a custom User-Agent:
     ```
-    mcp-deception-incubator-kubernetes/1.0 (tool=kubeconfig_get; client=cursor/0.45.6; cluster_hash=a1b2c3d4e5f6; ns_hash=f6e5d4c3b2a1)
+    k8s-access-portal/1.0 (tool=kubeconfig_get; client=cursor/0.45.6; cluster_hash=a1b2c3d4e5f6; ns_hash=f6e5d4c3b2a1)
     ```
   - returns a short-lived, signed download link for the kubeconfig YAML stored in KV
 
@@ -199,7 +202,11 @@ npx wrangler secret put DOWNLOAD_TOKEN_SECRET
 npx wrangler secret put TRAP_ACCESS_KEY
 ```
 
-6) Upload the kubeconfig YAML value into KV (key: `kubeconfig_yaml`) using either the Cloudflare dashboard KV UI or Wrangler KV commands.
+6) Upload the kubeconfig YAML into KV:
+
+```bash
+npx wrangler kv key put --namespace-id="<your-namespace-id>" "kubeconfig_yaml" --path="kubeconfig.yaml"
+```
 
 7) Deploy:
 
@@ -227,7 +234,7 @@ npm run deploy
 ## Test with curl (manual)
 
 ```bash
-BASE="https://mcp-deception-incubator-kubernetes.<your-account>.workers.dev"
+BASE="https://k8s-access-portal.<your-account>.workers.dev"
 
 # 1) Initialize MCP session
 sid="$(
@@ -262,8 +269,11 @@ KUBECONFIG=./kubeconfig.yaml kubectl get ns
 ## Example prompts (AI Playground)
 
 ```
+use tool list_clusters with { }
 use tool k8s_access_guide with { }
 use tool cluster_status_public with { "cluster": "dev-us-east-1" }
+use tool get_namespace_quota with { "cluster": "prod-us-east-1", "namespace": "default" }
+use tool request_access with { "cluster": "prod-us-east-1", "namespace": "default", "reason": "deploy hotfix" }
 use tool kubeconfig_get with { "cluster": "prod-us-east-1", "namespace": "default", "reason": "read-only debugging" }
 ```
 
@@ -272,7 +282,7 @@ use tool kubeconfig_get with { "cluster": "prod-us-east-1", "namespace": "defaul
 1. Go to [https://playground.ai.cloudflare.com](https://playground.ai.cloudflare.com)
 2. Enter your MCP endpoint:
    ```
-   https://mcp-deception-incubator-kubernetes.<your-account>.workers.dev/sse
+   https://k8s-access-portal.<your-account>.workers.dev/sse
    ```
 
 ## Compatibility smoke test
@@ -280,13 +290,13 @@ use tool kubeconfig_get with { "cluster": "prod-us-east-1", "namespace": "defaul
 After deploying, run:
 
 ```bash
-./scripts/compat-smoke.sh https://mcp-deception-incubator-kubernetes.<your-account>.workers.dev
+./scripts/compat-smoke.sh https://k8s-access-portal.<your-account>.workers.dev
 ```
 
 It verifies:
 - GET `/` returns 200
 - `/sse` responds (SSE)
-- `tools/list` includes `k8s_access_guide`, `cluster_status_public`, `kubeconfig_get`
+- `tools/list` includes `list_clusters`, `k8s_access_guide`, `cluster_status_public`, `get_namespace_quota`, `request_access`, `kubeconfig_get`
 
 ## Worker runtime notes
 
@@ -298,7 +308,7 @@ It verifies:
 ## Troubleshooting MCP Connectivity
 
 1. **Check SDK Versions**: This repo uses `@modelcontextprotocol/sdk` `^1.25.2` and `agents` `0.0.100`.
-2. **Verify Tool Structure**: Tool definitions follow the standard `(name, parameters, handler)` format.
+2. **Verify Tool Structure**: Tool definitions follow the standard `(name, description, parameters, handler)` format.
 3. **Avoid proxy/header surprises**: If you're putting this behind another proxy, avoid overriding response headers in a way that breaks SSE/streaming.
 4. **Test with curl**: Use the manual curl flow above to test endpoints directly.
 5. **Check Browser Console**: Look for CORS errors in the browser console.
@@ -310,4 +320,4 @@ MIT -- for educational and research use only.
 ---
 
 Live example:
-[https://mcp-deception-incubator-kubernetes.harshad-surfer.workers.dev/](https://mcp-deception-incubator-kubernetes.harshad-surfer.workers.dev/)
+[https://k8s-access-portal.harshad-surfer.workers.dev/](https://k8s-access-portal.harshad-surfer.workers.dev/)
