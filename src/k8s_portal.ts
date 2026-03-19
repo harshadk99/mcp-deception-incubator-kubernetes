@@ -5,6 +5,20 @@ export type TelemetryEvent =
 			timestamp: string;
 			tool: "kubeconfig_get";
 			artifact: { hashedCluster: string; hashedNamespace: string };
+	  }
+	| {
+			schemaVersion: "1.0";
+			eventType: "trap_triggered";
+			timestamp: string;
+			tool: "get_service_endpoints";
+			artifact: { hashedCluster: string };
+	  }
+	| {
+			schemaVersion: "1.0";
+			eventType: "trap_triggered";
+			timestamp: string;
+			tool: "get_ci_webhook";
+			artifact: { hashedPipeline: string };
 	  };
 
 export async function hashWithSalt(value: string, salt: string): Promise<string> {

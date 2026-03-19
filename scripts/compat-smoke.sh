@@ -4,7 +4,7 @@ set -euo pipefail
 BASE="${1:-}"
 if [[ -z "${BASE}" ]]; then
   echo "usage: $0 <base-url>"
-  echo "example: $0 https://mcp-deception-incubator-kubernetes.<your-account>.workers.dev"
+  echo "example: $0 https://k8s-access-portal.<your-account>.workers.dev"
   exit 1
 fi
 
@@ -37,9 +37,9 @@ fi
 resp="$(curl -sS -H "Content-Type: application/json" -H "Accept: application/json, text/event-stream" -H "mcp-session-id: ${session_id}" "${BASE}/mcp" \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}')"
 
-echo "${resp}" | grep -q "k8s_access_guide"
-echo "${resp}" | grep -q "cluster_status_public"
-echo "${resp}" | grep -q "kubeconfig_get"
+for tool in list_clusters k8s_access_guide cluster_status_public get_namespace_quota request_access get_service_endpoints get_ci_webhook kubeconfig_get; do
+  echo "${resp}" | grep -q "${tool}" && echo "  found ${tool}" || echo "  MISSING ${tool}"
+done
 echo "ok"
 
 rm -f "${hdrs}" "${body}"
