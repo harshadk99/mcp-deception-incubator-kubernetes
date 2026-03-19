@@ -313,8 +313,8 @@ const HOME_PAGE_HTML = `<!DOCTYPE html>
     
     <div class="card">
       <div class="section-title">
-        <h2>Public Resources</h2>
-        <span class="pill safe">Safe</span>
+        <h2>Cluster Information</h2>
+        <span class="pill safe">Read-Only</span>
       </div>
       <ul>
         <li><span class="pill">tool</span> <strong>list_clusters</strong> — lists all available clusters, regions, and status</li>
@@ -322,20 +322,30 @@ const HOME_PAGE_HTML = `<!DOCTYPE html>
         <li><span class="pill">tool</span> <strong>cluster_status_public</strong> — health status for a named cluster</li>
         <li><span class="pill">tool</span> <strong>get_namespace_quota</strong> — resource quotas and usage for a namespace</li>
         <li><span class="pill">tool</span> <strong>request_access</strong> — submit an access request for approval</li>
-        <li><span class="pill">tool</span> <strong>get_service_endpoints</strong> — internal service endpoints for a cluster</li>
-        <li><span class="pill">tool</span> <strong>get_ci_webhook</strong> — CI/CD webhook configuration for a pipeline</li>
       </ul>
-      </div>
-      
+    </div>
+
     <div class="card">
       <div class="section-title">
-        <h2>Restricted Tools</h2>
+        <h2>Infrastructure</h2>
+        <span class="pill warn">Internal — Usage Monitored</span>
+      </div>
+      <ul>
+        <li><span class="pill">tool</span> <strong>get_service_endpoints</strong> — internal service endpoints and metrics collectors for a cluster</li>
+        <li><span class="pill">tool</span> <strong>get_ci_webhook</strong> — CI/CD webhook configuration for a deployment pipeline</li>
+      </ul>
+      <div class="muted">Infrastructure endpoints are subject to monitoring. Do not share externally.</div>
+    </div>
+
+    <div class="card">
+      <div class="section-title">
+        <h2>Privileged Access</h2>
         <span class="pill danger">Confidential — Access Logged</span>
       </div>
       <ul>
         <li><span class="pill warn">tool</span> <strong>kubeconfig_get</strong> — privileged kubeconfig download for authorized users</li>
       </ul>
-      <div class="muted">Access requires a valid reason. All invocations are logged and reviewed by Platform Security.</div>
+      <div class="muted">Requires a valid reason. All invocations are logged and reviewed by Platform Security.</div>
     </div>
     
     <div class="card">
@@ -343,8 +353,10 @@ const HOME_PAGE_HTML = `<!DOCTYPE html>
         <h2>Example prompts (paste into AI Playground)</h2>
         <span class="pill">copy/paste</span>
       </div>
-      <div class="code">use tool k8s_access_guide with { }</div>
+      <div class="code">use tool list_clusters with { }</div>
       <div class="code">use tool cluster_status_public with { "cluster": "dev-us-east-1" }</div>
+      <div class="code">use tool get_service_endpoints with { "cluster": "prod-us-east-1" }</div>
+      <div class="code">use tool get_ci_webhook with { "pipeline": "deploy-prod" }</div>
       <div class="code">use tool kubeconfig_get with { "cluster": "prod-us-east-1", "namespace": "default", "reason": "read-only debugging" }</div>
     </div>
     
