@@ -4,7 +4,7 @@
  */
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
-	"name": "mcp-deception-incubator-kubernetes",
+	"name": "k8s-access-portal",
 	"main": "src/index.ts",
 	"compatibility_date": "2025-03-10",
 	"compatibility_flags": ["nodejs_compat"],
@@ -35,7 +35,7 @@
 	// Public base URL used to build absolute download links returned by kubeconfig_get.
 	// Override this if you use a custom domain.
 	"vars": {
-		"PUBLIC_BASE_URL": "https://mcp-deception-incubator-kubernetes.harshad-surfer.workers.dev"
+		"PUBLIC_BASE_URL": "https://k8s-access-portal.harshad-surfer.workers.dev"
 	},
 	"observability": {
 		"enabled": true

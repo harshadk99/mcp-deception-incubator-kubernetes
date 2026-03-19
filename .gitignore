@@ -4,9 +4,18 @@ mcp-config.json
 dist
 *.log
 .DS_Store
+
+# Decoy kubeconfig artifacts — NEVER commit these
 kubeconfig
+kubeconfig.yaml
+kubeconfig.yml
 *.kubeconfig
 *.kubeconfig.yaml
 *.kubeconfig.yml
 *.kube.yaml
 *.kube.yml
+
+# Environment and secrets
+.env
+.env.*
+.dev.vars

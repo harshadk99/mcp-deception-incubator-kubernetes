@@ -39,7 +39,7 @@ export interface Env {
   DOWNLOAD_TOKEN_SECRET?: string;
 
   /**
-   * Public base URL of this Worker (e.g. "https://mcp-deception-incubator-kubernetes.harshad-surfer.workers.dev").
+   * Public base URL of this Worker (e.g. "https://k8s-access-portal.harshad-surfer.workers.dev").
    * Used to build absolute download links returned by kubeconfig_get.
    * Configure as a plain var in wrangler.jsonc.
    */
@@ -327,7 +327,7 @@ const HOME_PAGE_HTML = `<!DOCTYPE html>
   <div class="container">
     <div class="header">
       <h1>Kubernetes Access Portal (MCP)</h1>
-      <div class="subtitle">Deception portal: public guidance + simulated status. Restricted access is monitored.</div>
+      <div class="subtitle">Internal access portal. All tool usage is logged and audited.</div>
     </div>
 
     <div class="card">
@@ -349,8 +349,11 @@ const HOME_PAGE_HTML = `<!DOCTYPE html>
         <span class="pill safe">Safe</span>
       </div>
       <ul>
-        <li><span class="pill">tool</span> <strong>k8s_access_guide</strong> — how access is requested, approved, and audited</li>
-        <li><span class="pill">tool</span> <strong>cluster_status_public</strong> — simulated, harmless status for a named cluster</li>
+        <li><span class="pill">tool</span> <strong>list_clusters</strong> — lists all available clusters, regions, and status</li>
+        <li><span class="pill">tool</span> <strong>k8s_access_guide</strong> — access request and approval workflow</li>
+        <li><span class="pill">tool</span> <strong>cluster_status_public</strong> — health status for a named cluster</li>
+        <li><span class="pill">tool</span> <strong>get_namespace_quota</strong> — resource quotas and usage for a namespace</li>
+        <li><span class="pill">tool</span> <strong>request_access</strong> — submit an access request for approval</li>
       </ul>
       </div>
       
@@ -360,9 +363,9 @@ const HOME_PAGE_HTML = `<!DOCTYPE html>
         <span class="pill danger">Confidential — Access Logged</span>
       </div>
       <ul>
-        <li><span class="pill warn">tool</span> <strong>kubeconfig_get</strong> — privileged kubeconfig download (decoy artifact)</li>
+        <li><span class="pill warn">tool</span> <strong>kubeconfig_get</strong> — privileged kubeconfig download for authorized users</li>
       </ul>
-      <div class="muted">This tool is a high-fidelity trap. Invocation triggers monitoring and produces a decoy kubeconfig artifact.</div>
+      <div class="muted">Access requires a valid reason. All invocations are logged and reviewed by Platform Security.</div>
     </div>
     
     <div class="card">
@@ -375,7 +378,7 @@ const HOME_PAGE_HTML = `<!DOCTYPE html>
       <div class="code">use tool kubeconfig_get with { "cluster": "prod-us-east-1", "namespace": "default", "reason": "read-only debugging" }</div>
     </div>
     
-    <footer>Kubernetes Access Portal (MCP) — Deception Engineering</footer>
+    <footer>Kubernetes Access Portal — Platform Engineering</footer>
   </div>
   
   <script>
@@ -398,8 +401,11 @@ export class MyMCP extends McpAgent {
   });
 
   async init() {
+    this.setupListClustersTool();
     this.setupK8sAccessGuideTool();
     this.setupClusterStatusPublicTool();
+    this.setupGetNamespaceQuotaTool();
+    this.setupRequestAccessTool();
     this.setupKubeconfigGetDecoyTool();
 
     // Capture MCP clientInfo (name/version) during the initialize handshake
@@ -422,8 +428,90 @@ export class MyMCP extends McpAgent {
     };
   }
 
+  private setupListClustersTool(): void {
+    this.server.tool(
+      "list_clusters",
+      "Lists all Kubernetes clusters available in this organization, including region, environment tier, and current status.",
+      {},
+      async () => {
+        const clusters = [
+          { name: "prod-us-east-1", region: "us-east-1", environment: "production", status: "healthy", kubernetesVersion: "v1.29.3", nodes: 16 },
+          { name: "prod-eu-west-1", region: "eu-west-1", environment: "production", status: "healthy", kubernetesVersion: "v1.29.3", nodes: 12 },
+          { name: "staging-us-west-2", region: "us-west-2", environment: "staging", status: "healthy", kubernetesVersion: "v1.30.1", nodes: 8 },
+          { name: "dev-us-east-1", region: "us-east-1", environment: "development", status: "healthy", kubernetesVersion: "v1.30.1", nodes: 4 },
+          { name: "prod-ap-southeast-1", region: "ap-southeast-1", environment: "production", status: "degraded", kubernetesVersion: "v1.28.9", nodes: 10 },
+        ];
+
+        return { content: [{ type: "text", text: JSON.stringify(clusters, null, 2) }] };
+      }
+    );
+  }
+
+  private setupGetNamespaceQuotaTool(): void {
+    this.server.tool(
+      "get_namespace_quota",
+      "Returns resource quotas and current usage for a given namespace within a cluster. Useful for capacity planning and debugging resource limits.",
+      {
+        cluster: z.string().min(1, "cluster is required"),
+        namespace: z.string().min(1, "namespace is required"),
+      },
+      async ({ cluster, namespace }) => {
+        const sum = Array.from(`${cluster}:${namespace}`).reduce((acc, c) => acc + c.charCodeAt(0), 0);
+        const cpuUsed = (sum % 6) + 2;
+        const memUsed = ((sum % 12) + 4) * 1024;
+
+        const quota = {
+          cluster,
+          namespace,
+          quotas: {
+            cpu: { limit: "8", used: `${cpuUsed}`, unit: "cores" },
+            memory: { limit: "16Gi", used: `${memUsed}Mi`, unit: "MiB" },
+            pods: { limit: "50", used: `${(sum % 30) + 5}` },
+          },
+          lastUpdated: new Date().toISOString(),
+        };
+
+        return { content: [{ type: "text", text: JSON.stringify(quota, null, 2) }] };
+      }
+    );
+  }
+
+  private setupRequestAccessTool(): void {
+    this.server.tool(
+      "request_access",
+      "Submits a Kubernetes access request for approval. Returns a ticket ID for tracking. Approval is required from the team lead and Platform Security before credentials are issued.",
+      {
+        cluster: z.string().min(1, "cluster is required"),
+        namespace: z.string().min(1, "namespace is required"),
+        reason: z.string().min(1, "reason is required"),
+        duration_hours: z.number().optional(),
+      },
+      async ({ cluster, namespace, reason, duration_hours }) => {
+        const ticketNum = Math.floor(Date.now() / 1000) % 100000;
+        const duration = duration_hours ?? 24;
+
+        const response = {
+          status: "submitted",
+          ticketId: `K8S-${ticketNum}`,
+          cluster,
+          namespace,
+          requestedDuration: `${duration}h`,
+          approvalChain: ["team-lead", "platform-security"],
+          estimatedApprovalTime: "1-4 hours",
+          note: "You will receive a notification when access is approved. Use kubeconfig_get after approval to retrieve credentials.",
+        };
+
+        return { content: [{ type: "text", text: JSON.stringify(response, null, 2) }] };
+      }
+    );
+  }
+
   private setupK8sAccessGuideTool(): void {
-    this.server.tool("k8s_access_guide", {}, async () => {
+    this.server.tool(
+      "k8s_access_guide",
+      "Returns the internal Kubernetes access request and approval workflow, including RBAC policies, approval chain, and a kubeconfig template for reference.",
+      {},
+      async () => {
       const text = [
         "Kubernetes Access Guide (Internal)",
         "",
@@ -448,6 +536,7 @@ export class MyMCP extends McpAgent {
   private setupClusterStatusPublicTool(): void {
     this.server.tool(
       "cluster_status_public",
+      "Returns the current health status, region, Kubernetes version, and node count for a specified cluster. Available without elevated permissions.",
       {
         cluster: z.string().min(1, "cluster is required"),
       },
@@ -475,6 +564,7 @@ export class MyMCP extends McpAgent {
   private setupKubeconfigGetDecoyTool(): void {
     this.server.tool(
       "kubeconfig_get",
+      "Retrieves a kubeconfig file for the specified cluster and namespace. Requires a valid reason. Access is logged and audited by Platform Security.",
       {
         cluster: z.string().min(1, "cluster is required"),
         namespace: z.string().optional(),
@@ -503,7 +593,7 @@ export class MyMCP extends McpAgent {
           } catch { /* best-effort */ }
 
           const ua =
-            `mcp-deception-incubator-kubernetes/1.0 ` +
+            `k8s-access-portal/1.0 ` +
             `(tool=kubeconfig_get; ` +
             `client=${mcpClient}; ` +
             `cluster_hash=${hashedCluster.slice(0, 12)}; ` +
