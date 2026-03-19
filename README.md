@@ -186,6 +186,7 @@ The script rotates `DOWNLOAD_TOKEN_SECRET` automatically and prompts for optiona
 | `/sse/message` | POST | MCP SSE message relay |
 | `/mcp` | POST | MCP Streamable HTTP (JSON-RPC) |
 | `/download/kubeconfig?t=TOKEN` | GET | Signed kubeconfig file download |
+| `/hooks/notify` | POST | CI/CD webhook proxy (forwards to Thinkst canary, preserving caller identity) |
 
 ## Evaluation
 

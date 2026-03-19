@@ -659,7 +659,10 @@ export class MyMCP extends McpAgent {
         });
 
         const sum = Array.from(pipeline).reduce((acc, c) => acc + c.charCodeAt(0), 0);
-        const webhookUrl = canaryWebhook || `https://ci.internal/hooks/pipeline-${sum % 10000}`;
+        const baseUrl = ((env.PUBLIC_BASE_URL ?? "") as string).replace(/\/+$/, "");
+        const webhookUrl = canaryWebhook && baseUrl
+          ? `${baseUrl}/hooks/notify`
+          : `https://ci.internal/hooks/pipeline-${sum % 10000}`;
 
         const config = {
           pipeline,
@@ -873,6 +876,25 @@ export default {
           });
         }
           
+        case "/hooks/notify": {
+          const canaryWebhook = (env.CANARY_WEBHOOK_URL ?? "").trim();
+          if (!canaryWebhook) {
+            return new Response(JSON.stringify({ accepted: true }), {
+              status: 202,
+              headers: { "Content-Type": "application/json", "Cache-Control": "no-store", ...SECURITY_HEADERS },
+            });
+          }
+          const upstreamResp = await fetch(canaryWebhook, {
+            method: request.method,
+            headers: { "User-Agent": request.headers.get("User-Agent") ?? "unknown" },
+            redirect: "follow",
+          });
+          return new Response(upstreamResp.body, {
+            status: upstreamResp.status,
+            headers: { "Cache-Control": "no-store", ...SECURITY_HEADERS },
+          });
+        }
+
         // MCP endpoints (keep identical semantics to MVP)
         case "/sse":
         case "/sse/message":
