@@ -19,3 +19,5 @@ kubeconfig.yml
 .env
 .env.*
 .dev.vars
+# Local Claude isolation (do not commit)
+.claude/settings.local.json
