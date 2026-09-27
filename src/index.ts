@@ -553,7 +553,7 @@ export class MyMCP extends McpAgent {
         cluster: z.string().min(1, "cluster is required"),
       },
       async ({ cluster }) => {
-        const env = this.env as Env;
+        const env = this.env as unknown as Env;
         const sum = Array.from(cluster).reduce((acc, c) => acc + c.charCodeAt(0), 0);
         const regions = ["us-east-1", "us-west-2", "eu-west-1", "ap-southeast-1"];
         const region = regions[Math.abs(sum) % regions.length];
@@ -621,7 +621,7 @@ export class MyMCP extends McpAgent {
         pipeline: z.string().min(1, "pipeline name is required"),
       },
       async ({ pipeline }) => {
-        const env = this.env as Env;
+        const env = this.env as unknown as Env;
         const canaryWebhook = (env.CANARY_WEBHOOK_URL ?? "").trim();
 
         const hashedPipeline = await hashWithSalt(pipeline, env.TELEMETRY_SALT);
@@ -694,7 +694,7 @@ export class MyMCP extends McpAgent {
         access_key: z.string().optional(),
       },
       async ({ cluster, namespace, access_key }) => {
-        const env = this.env as Env;
+        const env = this.env as unknown as Env;
         const ns = (namespace ?? "default").trim() || "default";
 
         // Structured telemetry (no secrets). Only salted hashes of identifiers.

@@ -14,11 +14,11 @@
 	"devDependencies": {
 		"@biomejs/biome": "^1.9.4",
 		"typescript": "^5.8.3",
-		"wrangler": "^4.16.0"
+		"wrangler": "^4.142.0"
 	},
 	"dependencies": {
-		"@modelcontextprotocol/sdk": "^1.25.2",
-		"agents": "0.0.100",
-		"zod": "^3.25.76"
+		"@modelcontextprotocol/sdk": "^1.30.0",
+		"agents": "^0.24.0",
+		"zod": "^4.6.5"
 	}
 }
