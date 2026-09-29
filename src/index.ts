@@ -58,9 +58,97 @@ export interface Env {
    * Set via: `wrangler secret put CANARY_WEBHOOK_URL`
    */
   CANARY_WEBHOOK_URL?: string;
+
+  /**
+   * Workers Analytics Engine dataset that records every request (including
+   * scanner probes and MCP JSON-RPC methods) for later analysis.
+   * Bound in wrangler.jsonc as TRAP_EVENTS. Optional: logging is skipped if unbound.
+   */
+  TRAP_EVENTS?: AnalyticsEngineDataset;
 }
 
 const KUBECONFIG_KV_KEY = "kubeconfig_yaml";
+
+// Largest request body inspected for JSON-RPC metadata when logging.
+const MAX_LOGGED_BODY_BYTES = 64 * 1024;
+
+type JsonRpcSummary = { method: string; tool: string; client: string };
+
+/**
+ * Pull only non-sensitive metadata out of an MCP JSON-RPC body: the method,
+ * the tool name for tools/call, and clientInfo for initialize. Tool arguments
+ * are never read.
+ */
+async function summarizeJsonRpc(copy: Request | null): Promise<JsonRpcSummary[]> {
+  if (!copy) return [];
+  const len = Number(copy.headers.get("Content-Length") ?? "0");
+  if (len > MAX_LOGGED_BODY_BYTES) return [];
+  try {
+    const body = await copy.json();
+    const messages = (Array.isArray(body) ? body : [body]).slice(0, 10);
+    return messages.map((m) => {
+      const msg = m as { method?: unknown; params?: { name?: unknown; clientInfo?: { name?: unknown; version?: unknown } } };
+      const ci = msg.params?.clientInfo;
+      return {
+        method: typeof msg.method === "string" ? msg.method.slice(0, 64) : "",
+        tool: msg.method === "tools/call" && typeof msg.params?.name === "string" ? msg.params.name.slice(0, 64) : "",
+        client: ci && typeof ci.name === "string" ? `${ci.name}/${String(ci.version ?? "")}`.slice(0, 128) : "",
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Record one data point per request (or per JSON-RPC message) in Analytics Engine.
+ * Blob layout (keep stable; queries depend on it):
+ *   1 path, 2 method, 3 user-agent, 4 ASN, 5 AS org, 6 country, 7 colo,
+ *   8 salted IP hash, 9 JSON-RPC method, 10 tool name, 11 MCP client
+ * Index: "probe" for non-MCP paths, "mcp" for MCP transports.
+ */
+async function recordRequest(request: Request, bodyCopy: Request | null, env: Env, pathname: string): Promise<void> {
+  if (!env.TRAP_EVENTS) return;
+  const cf = (request.cf ?? {}) as { asn?: number; asOrganization?: string; country?: string; colo?: string };
+  const ip = request.headers.get("CF-Connecting-IP") ?? "";
+  const ipHash = (await hashWithSalt(ip, env.TELEMETRY_SALT)).slice(0, 16);
+  const isMcp = pathname === "/mcp" || pathname === "/sse" || pathname === "/sse/message";
+  const base = [
+    pathname.slice(0, 256),
+    request.method,
+    (request.headers.get("User-Agent") ?? "").slice(0, 256),
+    String(cf.asn ?? ""),
+    (cf.asOrganization ?? "").slice(0, 128),
+    cf.country ?? "",
+    cf.colo ?? "",
+    ipHash,
+  ];
+  const rpc = isMcp ? await summarizeJsonRpc(bodyCopy) : [];
+  const rows = rpc.length > 0 ? rpc : [{ method: "", tool: "", client: "" }];
+  for (const r of rows) {
+    env.TRAP_EVENTS.writeDataPoint({
+      indexes: [isMcp ? "mcp" : "probe"],
+      blobs: [...base, r.method, r.tool, r.client],
+    });
+  }
+}
+
+/** Discovery document served at /.well-known/mcp.json, where scanners look for MCP servers. */
+function wellKnownMcp(origin: string): string {
+  return JSON.stringify(
+    {
+      name: "k8s-access-portal",
+      title: "Kubernetes Access Portal",
+      version: "1.0.0",
+      description:
+        "Internal self-service access to Kubernetes clusters: cluster inventory, access requests, and short-lived kubeconfig issuance.",
+      transport: { type: "streamable-http", url: `${origin}/mcp` },
+      endpoints: { streamable_http: `${origin}/mcp`, sse: `${origin}/sse` },
+    },
+    null,
+    2,
+  );
+}
 
 const SECURITY_HEADERS = {
   "X-Content-Type-Options": "nosniff",
@@ -828,8 +916,24 @@ export default {
     const url = new URL(request.url);
     const pathname = url.pathname;
 
+    // Log every request, including scanner probes, without delaying the response.
+    // MCP POST bodies are cloned now, before the MCP handler consumes the original.
+    const isMcpPost =
+      request.method === "POST" && (pathname === "/mcp" || pathname === "/sse/message");
+    const bodyCopy = env.TRAP_EVENTS && isMcpPost ? request.clone() : null;
+    ctx.waitUntil(recordRequest(request, bodyCopy, env, pathname).catch(() => {}));
+
     try {
       switch (pathname) {
+        case "/.well-known/mcp.json":
+          return new Response(wellKnownMcp(url.origin), {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json",
+              "Cache-Control": "no-store",
+              ...SECURITY_HEADERS,
+            },
+          });
         case "/":
           return new Response(HOME_PAGE_HTML, {
             status: 200,

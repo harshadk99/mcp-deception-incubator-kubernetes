@@ -182,6 +182,7 @@ The script rotates `DOWNLOAD_TOKEN_SECRET` automatically and prompts for optiona
 | Path | Method | Purpose |
 |------|--------|---------|
 | `/` | GET | HTML portal page with tool descriptions and Playground link |
+| `/.well-known/mcp.json` | GET | MCP discovery document (scanners probe this path) |
 | `/sse` | GET | MCP SSE endpoint (AI Playground / Cursor) |
 | `/sse/message` | POST | MCP SSE message relay |
 | `/mcp` | POST | MCP Streamable HTTP (JSON-RPC) |
@@ -266,11 +267,39 @@ use tool kubeconfig_get with { "cluster": "prod-us-east-1", "namespace": "defaul
 
 ## Data Collection & Privacy
 
-**Collected**: structured `trap_triggered` log events with salted SHA-256 hashes of identifiers, MCP client identity from the `initialize` handshake.
+**Collected**: structured `trap_triggered` log events with salted SHA-256 hashes of identifiers, MCP client identity from the `initialize` handshake, and a per-request log (path, User-Agent, network, country, salted IP hash, JSON-RPC method and tool name).
 
-**Not collected**: kubeconfig content, raw cluster/namespace names, the `reason` parameter, plaintext infrastructure identifiers.
+**Not collected**: kubeconfig content, raw cluster/namespace names, tool arguments, raw IP addresses, the `reason` parameter, plaintext infrastructure identifiers.
 
 To analyze events, filter Worker logs for `"eventType":"trap_triggered"`.
+
+### Request log (Workers Analytics Engine)
+
+Every request is also written to the `kubetrap_events` Analytics Engine dataset (binding `TRAP_EVENTS`, kept for three months). This covers scanner probes of unknown paths as well as MCP traffic, which separates internet scanners from agents that complete the MCP handshake and call tools.
+
+| Blob | Field |
+|------|-------|
+| 1 | Path |
+| 2 | HTTP method |
+| 3 | User-Agent |
+| 4 | ASN |
+| 5 | AS organization |
+| 6 | Country |
+| 7 | Cloudflare colo |
+| 8 | Salted hash of the client IP (first 16 hex chars) |
+| 9 | JSON-RPC method (MCP paths only) |
+| 10 | Tool name for `tools/call` |
+| 11 | MCP `clientInfo` name/version from `initialize` |
+
+The index is `probe` for non-MCP paths and `mcp` for MCP transports. Tool arguments and raw IP addresses are never recorded. Query with the [SQL API](https://developers.cloudflare.com/analytics/analytics-engine/sql-api/), for example:
+
+```sql
+SELECT blob1 AS path, blob3 AS ua, blob5 AS org, count() AS hits
+FROM kubetrap_events
+WHERE index1 = 'probe' AND timestamp > NOW() - INTERVAL '7' DAY
+GROUP BY path, ua, org
+ORDER BY hits DESC
+```
 
 ## Threat Model
 

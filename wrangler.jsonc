@@ -37,6 +37,14 @@
 	"vars": {
 		"PUBLIC_BASE_URL": "https://k8s-access-portal.harshad-surfer.workers.dev"
 	},
+	// Every request (scanner probes, MCP JSON-RPC methods, trap calls) is recorded here.
+	// Datasets are created on first write; data is kept for three months.
+	"analytics_engine_datasets": [
+		{
+			"binding": "TRAP_EVENTS",
+			"dataset": "kubetrap_events"
+		}
+	],
 	"observability": {
 		"enabled": true
 	}
